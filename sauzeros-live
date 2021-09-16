@@ -168,7 +168,7 @@ build_stage1()
     print "Build stage1 packages"
        for pkg in $base_pkgs ; do
         . $filesdir/flags.sh
-        kiss b $pkg && kis i $pkg || panic "Failed to build $pkg"
+        kiss b $pkg && kiss i $pkg || panic "Failed to build $pkg"
         done
     #fix missing ssl cert
     cp /etc/ssl/cert.pem $rootfsdir/etc/ssl/
