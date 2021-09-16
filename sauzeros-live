@@ -40,27 +40,27 @@ usage: ${0##*/} [options ...]
 
        -s,   --sources  <dir>            set sources directory
                                          default is inside chroot
-                                    
+
        -o,   --output   <name>           set chroot output path
-                                    
+
        -p,   --package  <pkg1,pkg2,...>  set packages to install
                                          default are <none>
 
        -b1,  --build-stage1              build stage1 rootfs packages
 
        -b2,  --build-stage2              build stage2 rootfs packages
-       
+
        -b3,  --build-stage3              build xorg and applications
 
        -a,   --archive                   create rootfs tarball
                                          in tmpdir
-                                         
+
        -i,   --build-img                 build live img disk
-       
+
        -k,   --build-kernel              build live img kernel
-       
+
        -in   --build-initramfs           build live img initramfs
-       
+
        -iso  --build-iso                 build live iso in tmpdir
                                          <requires -i -k -ini>
 
@@ -148,7 +148,6 @@ build_stage1()
     print "Preparing rootfs enviroment"
 
     mkdir -p  "$rootfsdir" "$tmpdir"
-    
 
     [ -n "$pkgdir" ] && {
         mkdir -p "$rootfsdir/root/.cache/kiss/sources"
@@ -188,7 +187,7 @@ build_stage2()
         done
 }
 
-build_stage2()
+build_stage3()
 {
     [ "$packages" ] && base3_pkgs="$base3_pkgs ${packages//,/ }"
 
@@ -228,14 +227,14 @@ build_kernel()
 	#copy default config
 	cp $filesdir/$kernel_conf $tmpdir/img_mount/root
 	chroot2_exec "cd /tmp && curl -LO $kernel_url && tar xvf linux-$kernel_ver.tar.xz && cd linux-$kernel_ver && zcat /root/$kernel_conf > .config && make olddefconfig && make && make install && make modules_install"
-    umount $tmpdir/img_mount/
+	umount $tmpdir/img_mount/
 }
 
 build_initramfs()
 {
 	#build the initrmafs for live iso
 	mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
-    chroot2_exec "KISS_PROMPT=0 kiss b dracut && KISS_PROMPT=0 kiss i dracut" || panic "Failed to build dracut"
+    	chroot2_exec "KISS_PROMPT=0 kiss b dracut && KISS_PROMPT=0 kiss i dracut" || panic "Failed to build dracut"
 	chroot2_exec "dracut -f -m 'base drm dash' /boot/initramfs.img $kernel_name"
 	cp $tmpdir/img_mount/boot/initramfs.img $tmpdir && cd $tmpdir
 	mkdir initramfs && cd initramfs
@@ -274,7 +273,7 @@ build_iso()
 	cp -f initramfs-live.lz4 img_mount/initram.fs
 	cp -f vmlinuz-sauzeros img_mount/vmlinuz-sauzeros
 	umount img_mount
-	
+
 	xorriso -as mkisofs \
        -iso-level 3 \
        -full-iso9660-filenames \
@@ -303,7 +302,10 @@ build_iso()
     fi
     if [ "$stage2" = 1 ]
     then build_stage2
-    fi 
+    fi
+    if [ "$stage3" = 1 ]
+    then build_stage3
+    fi
     if [ "$archive" = 1 ]
     then build_archive
     fi
@@ -312,12 +314,11 @@ build_iso()
     fi
     if [ "$kernel" = 1 ]
     then build_kernel
-    fi    
+    fi
     if [ "$init" = 1 ]
     then build_initramfs
-    fi    
+    fi
     if [ "$iso" = 1 ]
     then build_iso
-    fi    
-    
+    fi
 }
