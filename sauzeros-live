@@ -16,7 +16,12 @@ panic()
 
 chroot_exec()
 {
-    echo "$1 3>&-" | "$rootfsdir/usr/bin/kiss-chroot" "${2:-$rootfsdir}" >/dev/null
+    echo "$1 3>&-" | "$rootfsdir/usr/bin/kiss-chroot" "${2:-$rootfsdir}" #>/dev/null
+}
+
+chroot2_exec()
+{
+    echo "$1 3>&-" | "$tmpdir/img_mount/usr/bin/kiss-chroot" "$tmpdir/img_mount" #>/dev/null
 }
 
 cleanup()
@@ -30,29 +35,31 @@ usage()
 {
     cat << EOF
 usage: ${0##*/} [options ...]
-       -c,  --config   <file>            set config file path
+       -c,   --config   <file>           set config file path
                                          default is ./build.cfg
 
-       -s,  --sources  <dir>             set sources directory
+       -s,   --sources  <dir>            set sources directory
                                          default is inside chroot
                                     
-       -o,  --output   <name>            set chroot output path
+       -o,   --output   <name>           set chroot output path
                                     
        -p,   --package  <pkg1,pkg2,...>  set packages to install
                                          default are <none>
 
        -b1,  --build-stage1              build stage1 rootfs packages
 
-       -b2,  --build-stage2              build stage2 rootfs packages 
+       -b2,  --build-stage2              build stage2 rootfs packages
+       
+       -b3,  --build-stage3              build xorg and applications
 
        -a,   --archive                   create rootfs tarball
                                          in tmpdir
                                          
-       -i,   --build-img                 build live img fs
+       -i,   --build-img                 build live img disk
        
        -k,   --build-kernel              build live img kernel
        
-       -in  --build-initramfs            build live img initramfs
+       -in   --build-initramfs           build live img initramfs
        
        -iso  --build-iso                 build live iso in tmpdir
                                          <requires -i -k -ini>
@@ -93,6 +100,9 @@ prepare()
         -b2 | --build-stage2)
             stage2=1; shift 1
         ;;
+        -b3 | --build-stage3)
+            stage3=1; shift 1
+        ;;
         -img | --build-img)
         	image=1; shift 1
         ;;
@@ -117,6 +127,19 @@ prepare()
 
 
     [ "$debug" = 1 ] && set -x || :
+}
+
+check_depends()
+{
+    . /etc/os-release
+
+    if [ "$NAME" = "sauzerOS" ]; then
+        for _pkg in lz4 libisoburn squashfs-tools  ; do
+            [ -d "/var/db/kiss/installed/$_pkg" ] || panic "$_pkg not installed"
+        done
+    else
+        print "Download latest sauzeros-rootfs and run this script from the chroot"; sleep 2;
+    fi
 }
 
 
@@ -163,7 +186,17 @@ build_stage2()
         for pkg in $base2_pkgs ; do
         chroot_exec "KISS_PROMPT=0 kiss b $pkg && KISS_PROMPT=0 kiss i $pkg" || panic "Failed to build $pkg"
         done
+}
 
+build_stage2()
+{
+    [ "$packages" ] && base3_pkgs="$base3_pkgs ${packages//,/ }"
+
+    #build stage3 in chroot
+    print "Build X and applications"
+        for pkg in $base3_pkgs ; do
+        chroot_exec "KISS_PROMPT=0 kiss b $pkg && KISS_PROMPT=0 kiss i $pkg" || panic "Failed to build $pkg"
+        done
 }
 
 build_archive()
@@ -186,10 +219,7 @@ build_img()
     umount $tmpdir/img_mount/
 }
 
-chroot2_exec()
-{
-    echo "$1 3>&-" | "$tmpdir/img_mount/usr/bin/kiss-chroot" "$tmpdir/img_mount" #>/dev/null
-}
+
 
 build_kernel()
 {
@@ -205,6 +235,7 @@ build_initramfs()
 {
 	#build the initrmafs for live iso
 	mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
+    chroot2_exec "KISS_PROMPT=0 kiss b dracut && KISS_PROMPT=0 kiss i dracut" || panic "Failed to build dracut"
 	chroot2_exec "dracut -f -m 'base drm dash' /boot/initramfs.img $kernel_name"
 	cp $tmpdir/img_mount/boot/initramfs.img $tmpdir && cd $tmpdir
 	mkdir initramfs && cd initramfs
@@ -229,6 +260,8 @@ build_iso()
 	#use openssl to generate the shadow password string: echo PASSWORD | openssl passwd -1 -stdin
 	#escape  $ chars in the password string with \ 
 	chroot2_exec "usermod --password '\$1\$SJR.yI7K\$Xec.tJUVou9ArNUsQ8Pji1' root"
+	#enable iwd service for wireless
+	chroot2_exec "systemctl enable iwd"
 	mksquashfs img_mount/ root.sfs -comp xz
 	cp img_mount/boot/vmlinuz vmlinuz-sauzeros
 	umount img_mount
@@ -245,7 +278,7 @@ build_iso()
 	xorriso -as mkisofs \
        -iso-level 3 \
        -full-iso9660-filenames \
-       -volid "sauzeros" \
+       -volid "sauzerOS" \
        -eltorito-boot isolinux/isolinux.bin \
        -eltorito-catalog isolinux/boot.cat \
        -no-emul-boot -boot-load-size 4 -boot-info-table \
@@ -263,6 +296,7 @@ build_iso()
 
     # enable exit on error and disable globbing
     set -ef
+    check_depends
     prepare "$@"
     if [ "$stage1" = 1 ]
     then build_stage1
