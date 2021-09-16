@@ -55,7 +55,7 @@ usage: ${0##*/} [options ...]
        -a,   --archive                   create rootfs tarball
                                          in tmpdir
 
-       -i,   --build-img                 build live img disk
+       -im,  --build-img                 build live img disk
 
        -k,   --build-kernel              build live img kernel
 
@@ -103,7 +103,7 @@ prepare()
         -b3 | --build-stage3)
             stage3=1; shift 1
         ;;
-        -img | --build-img)
+        -im | --build-img)
         	image=1; shift 1
         ;;
         -k | --build-kernel)
@@ -232,7 +232,6 @@ build_initramfs()
 {
     #build the initrmafs for live iso
     mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
-    chroot2_exec "KISS_PROMPT=0 kiss b dracut && KISS_PROMPT=0 kiss i dracut" || panic "Failed to build dracut"
     chroot2_exec "dracut -f -m 'base drm dash' /boot/initramfs.img $kernel_name"
     cp $tmpdir/img_mount/boot/initramfs.img $tmpdir && cd $tmpdir
     mkdir initramfs && cd initramfs
@@ -255,7 +254,7 @@ build_iso()
     mount sauzeros-live-$ver.img img_mount
     #set the root password
     #use openssl to generate the shadow password string: echo PASSWORD | openssl passwd -1 -stdin
-    #escape  $ chars in the password string with \ 
+    #escape  $ chars in the password string with \
     chroot2_exec "usermod --password '\$1\$SJR.yI7K\$Xec.tJUVou9ArNUsQ8Pji1' root"
     #enable iwd service for wireless
     chroot2_exec "systemctl enable iwd"
