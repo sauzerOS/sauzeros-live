@@ -1,0 +1,100 @@
+#!/bin/sh
+
+mount -t proc none /proc
+mount -t sysfs none /sys
+mount -t devtmpfs none /dev
+
+ARCH=x86_64
+LABEL="$(cat /boot/id_label)"
+
+
+#load driver early for miix-sg80
+modprobe pwm-lpss
+modprobe pwm-lpss-platform
+modprobe drm
+modprobe i915
+
+###########################
+rescue_shell() {
+exec sh
+}
+###########################
+
+overlayMount() {
+
+mkdir -p /mnt/writable
+mount -t tmpfs -o rw tmpfs /mnt/writable
+mkdir -p /mnt/writable/upper
+mkdir -p /mnt/writable/work
+
+D_LOWER="/mnt/system"
+D_UPPER="/mnt/writable/upper"
+D_WORK="/mnt/writable/work"
+OVERLAYFSOPT="lowerdir=${D_LOWER},upperdir=${D_UPPER},workdir=${D_WORK}"
+
+mount -t overlay overlay -o ${OVERLAYFSOPT} ${ROOT} 
+
+}
+###########################
+
+mkdir -p /mnt/medium
+mkdir -p /mnt/system
+mkdir -p /mnt/rootfs
+
+sleep 3
+
+# Search for, and mount the boot medium
+LABEL="$(cat /boot/id_label)"
+for device in $(ls /dev/); do
+
+    [ "${device}" == "console" ]  && continue
+    [ "${device}" == "null"    ]  && continue
+    [ "${device}" == "snapshot" ] && continue
+    [ "${device}" == "port" ]     && continue
+    [ "${device}" == "random" ]   && continue
+    [[ "${device}" == tty* ]]     && continue
+    [[ "${device}" == loop* ]]    && continue
+
+    echo $device && mount -o ro /dev/${device} /mnt/medium 2> /dev/null && \
+    if [ "$(cat /mnt/medium/boot/${ARCH}/id_label)" != "${LABEL}" ]; then
+        umount /mnt/medium
+    else
+        DEVICE="${device}"
+        break
+    fi
+done
+
+if [ "${DEVICE}" == "" ]; then
+    echo "STOP: Boot medium not found."
+    rescue_shell
+fi
+
+# Mount the system image
+mount -t squashfs -o ro,loop /mnt/medium/boot/${ARCH}/root.sfs /mnt/system || {
+    if [ -r /mnt/medium/boot/${ARCH}/root.sfs ]; then
+        echo "STOP: Unable to mount system image. The kernel probably lacks"
+        echo "      SquashFS support. You may need to recompile it."
+    else
+        echo "STOP: Unable to mount system image. It seems to be missing."
+    fi
+
+    rescue_shell
+}
+
+# Define where the new root filesystem will be
+ROOT="/mnt/rootfs" # Also needed for /usr/share/live/sec_init.sh
+
+# Select LiveCD mode
+overlayMount
+
+# Move current mounts to directories accessible in the new root
+cd /mnt
+for dir in $(ls -1); do
+    if [ "${dir}" != "rootfs" ]; then
+        mkdir -p ${ROOT}/mnt/.boot/${dir}
+        mount --move /mnt/${dir} ${ROOT}/mnt/.boot/${dir}
+    fi
+done
+cd /
+
+exec switch_root ${ROOT} /sbin/init

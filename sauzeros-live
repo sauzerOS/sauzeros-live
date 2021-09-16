@@ -1,0 +1,289 @@
+#!/bin/sh
+#
+# script to build sauzeros chroot
+#based on https://github.com/eudaldgr/kiss-live
+
+print()
+{
+    printf "%b \033[1;34m%s\033[m\n" "${2:-"\033[1;33m->\033[m"}" "$1"
+}
+
+panic()
+{
+    print "${1:-unexpected error occurred}" \
+        "\033[1;31m!!\033[m" >&2; exit 1
+}
+
+chroot_exec()
+{
+    echo "$1 3>&-" | "$rootfsdir/usr/bin/kiss-chroot" "${2:-$rootfsdir}" >/dev/null
+}
+
+cleanup()
+{
+    [ -n "$pkgdir" ] && umount "$rootfsdir/root/.cache/kiss/sources"
+    if mountpoint -q $tmpdir/img_mount; then umount "$tmpdir/img_mount" 
+    fi
+}
+
+usage()
+{
+    cat << EOF
+usage: ${0##*/} [options ...]
+       -c,  --config   <file>            set config file path
+                                         default is ./build.cfg
+
+       -s,  --sources  <dir>             set sources directory
+                                         default is inside chroot
+                                    
+       -o,  --output   <name>            set chroot output path
+                                    
+       -p,   --package  <pkg1,pkg2,...>  set packages to install
+                                         default are <none>
+
+       -b1,  --build-stage1              build stage1 rootfs packages
+
+       -b2,  --build-stage2              build stage2 rootfs packages 
+
+       -a,   --archive                   create rootfs tarball
+                                         in tmpdir
+                                         
+       -i,   --build-img                 build live img fs
+       
+       -k,   --build-kernel              build live img kernel
+       
+       -in  --build-initramfs            build live img initramfs
+       
+       -iso  --build-iso                 build live iso in tmpdir
+                                         <requires -i -k -ini>
+
+       -d,   --debug                     enable debug mode
+
+       -h,   --help                      show this help
+
+EOF
+}
+prepare()
+{
+    while [ "$1" ]; do case "$1" in
+        -c | --config)
+            buildcfg="${2:?}"; shift 2
+        ;;
+        -s | --sources)
+            pkgdir="${2:?}";   shift 2
+        ;;
+        -o | --output)
+            archivelabel="${2:?}"; shift 2
+        ;;
+        -p | --package)
+            packages="${2:?}"; shift 2
+        ;;
+        -d | --debug)
+            debug=1; shift 1
+        ;;
+        -h | --help)
+            usage; exit 0
+        ;;
+        -a | --archive)
+            archive=1; shift 1
+        ;;
+        -b1 | --build-stage1)
+            stage1=1; shift 1
+        ;;
+        -b2 | --build-stage2)
+            stage2=1; shift 1
+        ;;
+        -img | --build-img)
+        	image=1; shift 1
+        ;;
+        -k | --build-kernel)
+        	kernel=1; shift 1
+        ;;
+        -in | --build-initramfs)
+        	init=1; shift 1
+        ;;
+        -iso | --build-iso)
+        	iso=1; shift 1
+        ;;
+        *)
+            printf "invalid option: %s\n\n" "$1"
+            usage; exit 1
+        ;;
+    esac; done
+
+    . "${buildcfg:=./build.cfg}"
+
+    trap 'cleanup' EXIT INT
+
+
+    [ "$debug" = 1 ] && set -x || :
+}
+
+
+build_stage1()
+{
+    print "Preparing rootfs enviroment"
+
+    mkdir -p  "$rootfsdir" "$tmpdir"
+    
+
+    [ -n "$pkgdir" ] && {
+        mkdir -p "$rootfsdir/root/.cache/kiss/sources"
+        mount --bind "$pkgdir" "$rootfsdir/root/.cache/kiss/sources"
+    }
+        #only clone repos if they don't exist
+        if [ ! -d "$rootfsdir/repo/sauzeros" ] ;
+        then git clone https://github.com/sauzeros/repo             "$rootfsdir/repo/sauzeros"
+        fi
+        if [ ! -d "$rootfsdir/repo/kiss" ] ;
+        then git clone https://github.com/kisslinux/repo            "$rootfsdir/repo/kiss"
+        fi
+        if [ ! -d "$rootfsdir/repo/community" ] ;
+        then git clone https://github.com/kiss-community/community  "$rootfsdir/repo/community"
+        fi
+
+    #build stage1 packages into the chroot dir
+    print "Build stage1 packages"
+       for pkg in $base_pkgs ; do
+        . $filesdir/flags.sh
+        kiss b $pkg && kis i $pkg || panic "Failed to build $pkg"
+        done
+    #fix missing ssl cert
+    cp /etc/ssl/cert.pem $rootfsdir/etc/ssl/
+    #fix locale
+    chroot_exec /var/db/kiss/installed/glibc/post-install
+}
+
+build_stage2()
+{
+    [ "$packages" ] && base2_pkgs="$base2_pkgs ${packages//,/ }"
+
+    #build stage2 in chroot
+    print "Build stage2 packages"
+        for pkg in $base2_pkgs ; do
+        chroot_exec "KISS_PROMPT=0 kiss b $pkg && KISS_PROMPT=0 kiss i $pkg" || panic "Failed to build $pkg"
+        done
+
+}
+
+build_archive()
+{
+    . "${buildcfg:=./build.cfg}"
+	#create rootfs tar in tmpdir
+    cd $rootfsdir
+    tar cvfJ /$tmpdir/${archivelabel}.tar.xz --exclude=./root/* --exclude=./tmp/* --exclude=./repo/* --exclude=./var/log/* --exclude=./home/* .
+}
+
+build_img()
+{
+
+	#prepare img for iso
+	dd if=/dev/zero of=$tmpdir/sauzeros-live-$ver.img bs=1G seek=5 count=0
+	mkfs.f2fs -f $tmpdir/sauzeros-live-$ver.img
+	mkdir -pv $tmpdir/img_mount
+    mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
+    tar xvf /$tmpdir/${archivelabel}.tar.xz -C $tmpdir/img_mount/
+    umount $tmpdir/img_mount/
+}
+
+chroot2_exec()
+{
+    echo "$1 3>&-" | "$tmpdir/img_mount/usr/bin/kiss-chroot" "$tmpdir/img_mount" #>/dev/null
+}
+
+build_kernel()
+{
+	#build kernel in img
+	mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
+	#copy default config
+	cp $filesdir/$kernel_conf $tmpdir/img_mount/root
+	chroot2_exec "cd /tmp && curl -LO $kernel_url && tar xvf linux-$kernel_ver.tar.xz && cd linux-$kernel_ver && zcat /root/$kernel_conf > .config && make olddefconfig && make && make install && make modules_install"
+    umount $tmpdir/img_mount/
+}
+
+build_initramfs()
+{
+	#build the initrmafs for live iso
+	mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
+	chroot2_exec "dracut -f -m 'base drm dash' /boot/initramfs.img $kernel_name"
+	cp $tmpdir/img_mount/boot/initramfs.img $tmpdir && cd $tmpdir
+	mkdir initramfs && cd initramfs
+	lsinitrd --unpack ../initramfs.img
+	rm init && cd lib && rm -rf firmware && cd ..
+	cp $tmpdir/img_mount/usr/bin/switch_root usr/bin/
+	mkdir boot && echo "sauzeros-live" > boot/id_label
+	cp $filesdir/init init && chmod +x init
+	find . -print0 | cpio --null -ov --format=newc > ../initramfs-live
+	cd ..
+	rm -rf initramfs
+	lz4 -flv initramfs-live
+	umount $tmpdir/img_mount/
+}
+
+build_iso()
+{
+	#build the live iso
+	cd $tmpdir
+	mount sauzeros-live-$ver.img img_mount
+	#set the root password
+	#use openssl to generate the shadow password string: echo PASSWORD | openssl passwd -1 -stdin
+	#escape  $ chars in the password string with \ 
+	chroot2_exec "usermod --password '\$1\$SJR.yI7K\$Xec.tJUVou9ArNUsQ8Pji1' root"
+	mksquashfs img_mount/ root.sfs -comp xz
+	cp img_mount/boot/vmlinuz vmlinuz-sauzeros
+	umount img_mount
+	tar xvf $filesdir/iso-structure.tar.xz -C .
+	echo "sauzeros-live" > live/boot/x86_64/id_label
+	mv -f root.sfs live/boot/x86_64
+	cp -f initramfs-live.lz4 live/boot/x86_64/initram.fs
+	cp -f vmlinuz-sauzeros live/boot/x86_64/vmlinuz-sauzeros
+	mount live/EFI/sauzeros/efiboot.img img_mount
+	cp -f initramfs-live.lz4 img_mount/initram.fs
+	cp -f vmlinuz-sauzeros img_mount/vmlinuz-sauzeros
+	umount img_mount
+	
+	xorriso -as mkisofs \
+       -iso-level 3 \
+       -full-iso9660-filenames \
+       -volid "sauzeros" \
+       -eltorito-boot isolinux/isolinux.bin \
+       -eltorito-catalog isolinux/boot.cat \
+       -no-emul-boot -boot-load-size 4 -boot-info-table \
+       -isohybrid-mbr live/isolinux/isohdpfx.bin \
+       -eltorito-alt-boot \
+       -e EFI/sauzeros/efiboot.img \
+       -no-emul-boot -isohybrid-gpt-basdat \
+       -output sauzeros-live-$ver.iso \
+	live
+}
+
+# int main()
+{
+    [ "$(id -u)" = 0 ] || panic "must be run as root"
+
+    # enable exit on error and disable globbing
+    set -ef
+    prepare "$@"
+    if [ "$stage1" = 1 ]
+    then build_stage1
+    fi
+    if [ "$stage2" = 1 ]
+    then build_stage2
+    fi 
+    if [ "$archive" = 1 ]
+    then build_archive
+    fi
+    if [ "$image" = 1 ]
+    then build_img
+    fi
+    if [ "$kernel" = 1 ]
+    then build_kernel
+    fi    
+    if [ "$init" = 1 ]
+    then build_initramfs
+    fi    
+    if [ "$iso" = 1 ]
+    then build_iso
+    fi    
+    
+}
