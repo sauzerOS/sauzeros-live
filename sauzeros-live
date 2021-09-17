@@ -27,7 +27,7 @@ chroot2_exec()
 cleanup()
 {
     [ -n "$pkgdir" ] && umount "$rootfsdir/root/.cache/kiss/sources"
-    if mountpoint -q $tmpdir/img_mount; then umount "$tmpdir/img_mount" 
+    if mountpoint -q $tmpdir/img_mount; then umount "$tmpdir/img_mount"
     fi
 }
 
@@ -50,12 +50,16 @@ usage: ${0##*/} [options ...]
 
        -b2,  --build-stage2              build stage2 rootfs packages
 
-       -b3,  --build-stage3              build xorg and applications
-
        -a,   --archive                   create rootfs tarball
                                          in tmpdir
 
        -im,  --build-img                 build live img disk
+
+       -b3,  --build-xorg                build Xorg
+
+       -vm,  --build-vmware              build vmware tools
+
+       -ap,  --build-apps		 build Xorg applications
 
        -k,   --build-kernel              build live img kernel
 
@@ -100,20 +104,26 @@ prepare()
         -b2 | --build-stage2)
             stage2=1; shift 1
         ;;
-        -b3 | --build-stage3)
+        -im | --build-img)
+            image=1; shift 1
+        ;;
+        -b3 | --build-xorg)
             stage3=1; shift 1
         ;;
-        -im | --build-img)
-        	image=1; shift 1
+        -vm | --build-vmware)
+            vmware=1; shift 1
+        ;;
+        -ap | --build-apps)
+            apps=1; shift 1
         ;;
         -k | --build-kernel)
-        	kernel=1; shift 1
+            kernel=1; shift 1
         ;;
         -in | --build-initramfs)
-        	init=1; shift 1
+            init=1; shift 1
         ;;
         -iso | --build-iso)
-        	iso=1; shift 1
+            iso=1; shift 1
         ;;
         *)
             printf "invalid option: %s\n\n" "$1"
@@ -181,19 +191,8 @@ build_stage2()
     [ "$packages" ] && base2_pkgs="$base2_pkgs ${packages//,/ }"
 
     #build stage2 in chroot
-    print "Build stage2 packages"
+    print "Building stage2"
         for pkg in $base2_pkgs ; do
-        chroot_exec "KISS_PROMPT=0 kiss b $pkg && KISS_PROMPT=0 kiss i $pkg" || panic "Failed to build $pkg"
-        done
-}
-
-build_stage3()
-{
-    [ "$packages" ] && base3_pkgs="$base3_pkgs ${packages//,/ }"
-
-    #build stage3 in chroot
-    print "Build X and applications"
-        for pkg in $base3_pkgs ; do
         chroot_exec "KISS_PROMPT=0 kiss b $pkg && KISS_PROMPT=0 kiss i $pkg" || panic "Failed to build $pkg"
         done
 }
@@ -208,7 +207,6 @@ build_archive()
 
 build_img()
 {
-
     #prepare img for iso
     dd if=/dev/zero of=$tmpdir/sauzeros-live-$ver.img bs=1G seek=5 count=0
     mkfs.f2fs -f $tmpdir/sauzeros-live-$ver.img
@@ -228,10 +226,67 @@ build_kernel()
     umount $tmpdir/img_mount/
 }
 
+build_stage3()
+{
+    [ "$packages" ] && base3_pkgs="$base3_pkgs ${packages//,/ }"
+
+    #build stage3 in img
+    mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
+    print "Building Xorg and dwm"
+        for pkg in $base3_pkgs ; do
+        chroot2_exec "KISS_PROMPT=0 kiss b $pkg && KISS_PROMPT=0 kiss i $pkg" || panic "Failed to build $pkg"
+        done
+    #enable lxdm
+    chroot2_exec "systemctl enable lxdm"
+    #add live user
+    chroot2_exec "useradd -m -s /bin/zsh -p live live"
+    #install oh-my-zsh
+    chroot2_exec "su live - -c 'cd ~ && curl -LO https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh && ZSH=/home/live/.zsh sh install.sh --unattended && mkdir /home/live/.dwm'"
+    #install dwm autostart script
+    cp $filesdir/autostart.sh img_mount/home/live/.dwm/autostart.sh
+    #enable autologin for user live
+    chroot2_exec "sed -i 's/# autologin=dgod/autologin=live/'"
+    umount $tmpdir/img_mount/
+}
+
+build_vmware()
+{
+    [ "$packages" ] && vmware_pkgs="$vmware_pkgs ${packages//,/ }"
+
+    #build vmware-tools in img
+    mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
+    print "Building vmware-tools"
+        for pkg in $vmware_pkgs ; do
+        chroot2_exec "KISS_PROMPT=0 kiss b $pkg && KISS_PROMPT=0 kiss i $pkg" || panic "Failed to build $pkg"
+        done
+    #enable open-vm-tools
+    chroot2_exec "systemctl enable vmtoolsd"
+    umount $tmpdir/img_mount/
+}
+
+build_applications()
+{
+    [ "$packages" ] && applications_pkgs="$applications_pkgs ${packages//,/ }"
+
+    #build applications in img
+    mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
+    print "Building applications"
+        for pkg in $applications_pkgs ; do
+        chroot2_exec "KISS_PROMPT=0 kiss b $pkg && KISS_PROMPT=0 kiss i $pkg" || panic "Failed to build $pkg"
+        done
+    umount $tmpdir/img_mount/
+}
+
 build_initramfs()
 {
-    #build the initrmafs for live iso
     mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
+    #set the root password
+    #use openssl to generate the shadow password string: echo PASSWORD | openssl passwd -1 -stdin
+    #escape  $ chars in the password string with \
+    chroot2_exec "usermod --password '\$1\$SJR.yI7K\$Xec.tJUVou9ArNUsQ8Pji1' root"
+    #enable iwd service for wireless
+    chroot2_exec "systemctl enable iwd"
+    #build the initrmafs for live iso
     chroot2_exec "dracut -f -I /usr/bin/lsblk -m 'base drm dash' /boot/initramfs.img $kernel_name"
     cp $tmpdir/img_mount/boot/initramfs.img $tmpdir && cd $tmpdir
     mkdir initramfs && cd initramfs
@@ -252,12 +307,6 @@ build_iso()
     #build the live iso
     cd $tmpdir
     mount sauzeros-live-$ver.img img_mount
-    #set the root password
-    #use openssl to generate the shadow password string: echo PASSWORD | openssl passwd -1 -stdin
-    #escape  $ chars in the password string with \
-    chroot2_exec "usermod --password '\$1\$SJR.yI7K\$Xec.tJUVou9ArNUsQ8Pji1' root"
-    #enable iwd service for wireless
-    chroot2_exec "systemctl enable iwd"
     mksquashfs img_mount/ root.sfs -comp xz
     cp img_mount/boot/vmlinuz vmlinuz-sauzeros
     umount img_mount
@@ -308,6 +357,12 @@ build_iso()
     fi
     if [ "$image" = 1 ]
     then build_img
+    fi
+    if [ "$vmware" = 1 ]
+    then build_vmware
+    fi
+    if [ "$apps" = 1 ]
+    then build_applications
     fi
     if [ "$kernel" = 1 ]
     then build_kernel
