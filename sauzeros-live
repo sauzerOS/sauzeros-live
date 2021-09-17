@@ -232,7 +232,7 @@ build_initramfs()
 {
     #build the initrmafs for live iso
     mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
-    chroot2_exec "dracut -f -m 'base drm dash' /boot/initramfs.img $kernel_name"
+    chroot2_exec "dracut -f -I /usr/bin/lsblk -m 'base drm dash' /boot/initramfs.img $kernel_name"
     cp $tmpdir/img_mount/boot/initramfs.img $tmpdir && cd $tmpdir
     mkdir initramfs && cd initramfs
     lsinitrd --unpack ../initramfs.img

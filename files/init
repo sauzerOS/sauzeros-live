@@ -32,7 +32,7 @@ D_UPPER="/mnt/writable/upper"
 D_WORK="/mnt/writable/work"
 OVERLAYFSOPT="lowerdir=${D_LOWER},upperdir=${D_UPPER},workdir=${D_WORK}"
 
-mount -t overlay overlay -o ${OVERLAYFSOPT} ${ROOT} 
+mount -t overlay overlay -o ${OVERLAYFSOPT} ${ROOT}
 
 }
 ###########################
@@ -45,15 +45,7 @@ sleep 3
 
 # Search for, and mount the boot medium
 LABEL="$(cat /boot/id_label)"
-for device in $(ls /dev/); do
-
-    [ "${device}" == "console" ]  && continue
-    [ "${device}" == "null"    ]  && continue
-    [ "${device}" == "snapshot" ] && continue
-    [ "${device}" == "port" ]     && continue
-    [ "${device}" == "random" ]   && continue
-    [[ "${device}" == tty* ]]     && continue
-    [[ "${device}" == loop* ]]    && continue
+for device in $(lsblk -n -o NAME); do
 
     echo $device && mount -o ro /dev/${device} /mnt/medium 2> /dev/null && \
     if [ "$(cat /mnt/medium/boot/${ARCH}/id_label)" != "${LABEL}" ]; then
@@ -64,7 +56,7 @@ for device in $(ls /dev/); do
     fi
 done
 
-if [ "${DEVICE}" == "" ]; then
+if [ "${DEVICE}" = "" ]; then
     echo "STOP: Boot medium not found."
     rescue_shell
 fi
