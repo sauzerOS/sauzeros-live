@@ -1,7 +1,9 @@
 export KISS_ROOT=$rootfsdir
+export KISS_TMPDIR=/tmp
 export KISS_PROMPT=0
 export KISS_SU=su
 export KISS_COMPRESS=xz
+export KISS_HOOK=$filesdir/kiss-hook
 export KISS_PATH=/repo/sauzeros/core:/repo/sauzeros/extra:/repo/sauzeros/xorg
 export KISS_PATH=$KISS_PATH:/repo/kiss/core:/repo/kiss/extra:/repo/kiss/wayland
 export KISS_PATH=$KISS_PATH:/repo/community/community

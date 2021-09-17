@@ -145,7 +145,7 @@ check_depends()
 
     if [ "$NAME" = "sauzerOS" ]; then
         for _pkg in lz4 libisoburn squashfs-tools  ; do
-            [ -d "/var/db/kiss/installed/$_pkg" ] || panic "$_pkg not installed"
+            [ -d "/var/db/kiss/installed/$_pkg" ] || echo "$_pkg not installed, required to build iso"
         done
     else
         print "Download latest sauzeros-rootfs and run this script from the chroot"; sleep 2;
@@ -178,7 +178,7 @@ build_stage1()
     print "Build stage1 packages"
        for pkg in $base_pkgs ; do
         . $filesdir/flags.sh
-        kiss b $pkg && kiss i $pkg || panic "Failed to build $pkg"
+        kiss b $pkg || panic "Failed to build $pkg"
         done
     #fix missing ssl cert
     cp /etc/ssl/cert.pem $rootfsdir/etc/ssl/
@@ -193,8 +193,12 @@ build_stage2()
     #build stage2 in chroot
     print "Building stage2"
         for pkg in $base2_pkgs ; do
-        chroot_exec "KISS_PROMPT=0 kiss b $pkg && KISS_PROMPT=0 kiss i $pkg" || panic "Failed to build $pkg"
+        chroot_exec "KISS_PROMPT=0 kiss b $pkg" || panic "Failed to build $pkg"
         done
+    #set the root password / enables boot into chroot with systemd-nspawn
+    #use openssl to generate the shadow password string: echo PASSWORD | openssl passwd -1 -stdin
+    #escape  $ chars in the password string with \
+    chroot_exec "usermod --password '\$1\$SJR.yI7K\$Xec.tJUVou9ArNUsQ8Pji1' root"
 }
 
 build_archive()
@@ -202,7 +206,8 @@ build_archive()
     . "${buildcfg:=./build.cfg}"
     #create rootfs tar in tmpdir
     cd $rootfsdir
-    tar cvfJ /$tmpdir/${archivelabel}.tar.xz --exclude=./root/* --exclude=./tmp/* --exclude=./repo/* --exclude=./var/log/* --exclude=./home/* .
+    tar cvf /$tmpdir/${archivelabel}.tar --exclude=./root/* --exclude=./tmp/* --exclude=./repo/* --exclude=./var/log/* --exclude=./home/* .
+    xz -9 -T0 -f /$tmpdir/${archivelabel}.tar
 }
 
 build_img()
@@ -232,20 +237,22 @@ build_stage3()
 
     #build stage3 in img
     mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
+    #initalize repos
+    chroot2_exec "init-repos"
     print "Building Xorg and dwm"
         for pkg in $base3_pkgs ; do
-        chroot2_exec "KISS_PROMPT=0 kiss b $pkg && KISS_PROMPT=0 kiss i $pkg" || panic "Failed to build $pkg"
+        chroot2_exec "KISS_PROMPT=0 kiss b $pkg" || panic "Failed to build $pkg"
         done
     #enable lxdm
     chroot2_exec "systemctl enable lxdm"
-    #add live user
-    chroot2_exec "useradd -m -s /bin/zsh -p live live"
+    #add live user / password live
+    chroot2_exec "useradd -m -s /bin/zsh -p '\$1\$8TfZtbHa\$ywKBTqok0raEXk8cQE06F.' live"
     #install oh-my-zsh
     chroot2_exec "su live - -c 'cd ~ && curl -LO https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh && ZSH=/home/live/.zsh sh install.sh --unattended && mkdir /home/live/.dwm'"
     #install dwm autostart script
-    cp $filesdir/autostart.sh img_mount/home/live/.dwm/autostart.sh
+    cp $filesdir/autostart.sh $tmpdir/img_mount/home/live/.dwm/autostart.sh
     #enable autologin for user live
-    chroot2_exec "sed -i 's/# autologin=dgod/autologin=live/'"
+    chroot2_exec "sed -i 's/# autologin=dgod/autologin=live/' /etc/lxdm/lxdm.conf"
     umount $tmpdir/img_mount/
 }
 
@@ -257,7 +264,7 @@ build_vmware()
     mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
     print "Building vmware-tools"
         for pkg in $vmware_pkgs ; do
-        chroot2_exec "KISS_PROMPT=0 kiss b $pkg && KISS_PROMPT=0 kiss i $pkg" || panic "Failed to build $pkg"
+        chroot2_exec "KISS_PROMPT=0 kiss b $pkg" || panic "Failed to build $pkg"
         done
     #enable open-vm-tools
     chroot2_exec "systemctl enable vmtoolsd"
@@ -272,7 +279,7 @@ build_applications()
     mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
     print "Building applications"
         for pkg in $applications_pkgs ; do
-        chroot2_exec "KISS_PROMPT=0 kiss b $pkg && KISS_PROMPT=0 kiss i $pkg" || panic "Failed to build $pkg"
+        chroot2_exec "KISS_PROMPT=0 kiss b $pkg" || panic "Failed to build $pkg"
         done
     umount $tmpdir/img_mount/
 }
@@ -280,10 +287,6 @@ build_applications()
 build_initramfs()
 {
     mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
-    #set the root password
-    #use openssl to generate the shadow password string: echo PASSWORD | openssl passwd -1 -stdin
-    #escape  $ chars in the password string with \
-    chroot2_exec "usermod --password '\$1\$SJR.yI7K\$Xec.tJUVou9ArNUsQ8Pji1' root"
     #enable iwd service for wireless
     chroot2_exec "systemctl enable iwd"
     #build the initrmafs for live iso
@@ -349,14 +352,14 @@ build_iso()
     if [ "$stage2" = 1 ]
     then build_stage2
     fi
-    if [ "$stage3" = 1 ]
-    then build_stage3
-    fi
     if [ "$archive" = 1 ]
     then build_archive
     fi
     if [ "$image" = 1 ]
     then build_img
+    fi
+    if [ "$stage3" = 1 ]
+    then build_stage3
     fi
     if [ "$vmware" = 1 ]
     then build_vmware
