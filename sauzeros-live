@@ -1,7 +1,14 @@
 #!/bin/sh
 #
-# script to build sauzeros chroot
-#based on https://github.com/eudaldgr/kiss-live
+# script to build sauzerOS chroot and live iso
+# based on https://github.com/eudaldgr/kiss-live
+#
+# run from live iso or rootfs chroot
+# configuration done in build.cfg
+# -b1 -b2 -a builds a new rootfs tarball
+# -im is required for -b3 -vm -ap -k -in -iso to work
+# -b1 -b2 -a -im -k -in -iso to build a minimal bootable iso
+
 
 print()
 {
@@ -61,9 +68,11 @@ usage: ${0##*/} [options ...]
 
        -ap,  --build-apps		 build Xorg applications
 
+       -f,   --firmware		         include linux-firmware
+
        -k,   --build-kernel              build live img kernel
 
-       -in   --build-initramfs           build live img initramfs
+       -in,  --build-initramfs           build live img initramfs
 
        -iso  --build-iso                 build live iso in tmpdir
                                          <requires -i -k -ini>
@@ -115,6 +124,9 @@ prepare()
         ;;
         -ap | --build-apps)
             apps=1; shift 1
+
+        -f | --firmware)
+            firmware=1; shift 1
         ;;
         -k | --build-kernel)
             kernel=1; shift 1
@@ -248,11 +260,13 @@ build_stage3()
     #add live user / password live
     chroot2_exec "useradd -m -s /bin/zsh -p '\$1\$8TfZtbHa\$ywKBTqok0raEXk8cQE06F.' live"
     #install oh-my-zsh
-    chroot2_exec "su live - -c 'cd ~ && curl -LO https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh && ZSH=/home/live/.zsh sh install.sh --unattended && mkdir /home/live/.dwm'"
+    chroot2_exec "su live - -c 'cd ~ && curl -LO https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh && ZSH=/home/live/.zsh sh install.sh --unattended && mkdir /home/live/.dwm && rm /home/live/install.sh'"
     #install dwm autostart script
     cp $filesdir/autostart.sh $tmpdir/img_mount/home/live/.dwm/autostart.sh
-    #enable autologin for user live
-    chroot2_exec "sed -i 's/# autologin=dgod/autologin=live/' /etc/lxdm/lxdm.conf"
+    #ensure correct ownership of live home dir
+    chroot2_exec "chown -R live:live /home/live"
+    #enable autologin for user live and set default session to dwm
+    chroot2_exec "sed -i 's/# autologin=dgod/autologin=live/' /etc/lxdm/lxdm.conf && sed -i '10s/.*/session=dwm/' /etc/lxdm/lxdm.conf"
     umount $tmpdir/img_mount/
 }
 
@@ -281,6 +295,21 @@ build_applications()
         for pkg in $applications_pkgs ; do
         chroot2_exec "KISS_PROMPT=0 kiss b $pkg" || panic "Failed to build $pkg"
         done
+    #install librsvg and adwaita-icons bin to avoid building rust
+    cp $filesdir/adwaita-icon-theme* $tmpdir/img_mount/root/.cache/kiss/bin
+    cp $filesdir/librsvg* $tmpdir/img_mount/root/.cache/kiss/bin
+    chroot2_exec "KISS_PROMPT=0 kiss i /root/.cache/kiss/bin/librsvg* && KISS_PROMPT=0 kiss i /root/.cache/kiss/bin/adwaita-icon-theme*"
+    umount $tmpdir/img_mount/
+}
+
+build_firmware()
+{
+    [ "$packages" ] && vmware_pkgs="$vmware_pkgs ${packages//,/ }"
+
+    #include linux-firmware
+    mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
+    print "Building linux-firmware"
+    chroot2_exec "KISS_PROMPT=0 kiss b linux-firmware" || panic "Failed to build $pkg"
     umount $tmpdir/img_mount/
 }
 
@@ -307,9 +336,13 @@ build_initramfs()
 
 build_iso()
 {
-    #build the live iso
     cd $tmpdir
     mount sauzeros-live-$ver.img img_mount
+    #add live user to sudoers
+    chroot2_exec "sed -i '85s/.*/live ALL=(ALL) NOPASSWD: ALL/' /etc/sudoers"
+    #cleanup kiss cache files
+    chroot2_exec "rm -rf /root/.*"
+    #build the iso
     mksquashfs img_mount/ root.sfs -comp xz
     cp img_mount/boot/vmlinuz vmlinuz-sauzeros
     umount img_mount
@@ -366,6 +399,9 @@ build_iso()
     fi
     if [ "$apps" = 1 ]
     then build_applications
+    fi
+    if [ "$firmware" = 1 ]
+    then build_firmware
     fi
     if [ "$kernel" = 1 ]
     then build_kernel
