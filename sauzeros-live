@@ -124,7 +124,7 @@ prepare()
         ;;
         -ap | --build-apps)
             apps=1; shift 1
-
+        ;;
         -f | --firmware)
             firmware=1; shift 1
         ;;
