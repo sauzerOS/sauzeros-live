@@ -325,7 +325,7 @@ build_iso()
     #add live user to sudoers
     chroot2_exec "sed -i '85s/.*/live ALL=(ALL) NOPASSWD: ALL/' /etc/sudoers"
     #cleanup kiss cache files
-    chroot2_exec "rm -rf /root/.*"
+    chroot2_exec "rm -rf /root/.cache"
     #build the iso
     mksquashfs img_mount/ root.sfs -comp xz
     cp img_mount/boot/vmlinuz vmlinuz-sauzeros
