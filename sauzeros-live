@@ -263,6 +263,8 @@ build_stage3()
     chroot2_exec "su live - -c 'cd ~ && curl -LO https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh && ZSH=/home/live/.zsh sh install.sh --unattended && mkdir /home/live/.dwm && rm /home/live/install.sh'"
     #install dwm autostart script
     cp $filesdir/autostart.sh $tmpdir/img_mount/home/live/.dwm/autostart.sh
+    #copy wallpaper
+    cp $filesdir/wallpaper.jpg $tmpdir/img_mount/home/live/.dwm/wallpaper.jpg
     #ensure correct ownership of live home dir
     chroot2_exec "chown -R live:live /home/live"
     #enable autologin for user live and set default session to dwm
