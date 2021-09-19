@@ -263,6 +263,7 @@ build_stage3()
     #copy wallpaper
     cp $filesdir/wallpaper.jpg $tmpdir/img_mount/home/live/.dwm/wallpaper.jpg
     #copy X config files
+    mkdir -pv $tmpdir/img_mount/etc/X11/xorg.conf.d
     cp $filesdir/{20-radeon.conf,21-intel.conf,22-amdgpu.conf,30-touchpad.conf} $tmpdir/img_mount/etc/X11/xorg.conf.d/
     #ensure correct ownership of live home dir
     chroot2_exec "chown -R live:live /home/live"
