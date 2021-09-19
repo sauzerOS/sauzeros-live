@@ -45,7 +45,7 @@ sleep 3
 
 # Search for, and mount the boot medium
 LABEL="$(cat /boot/id_label)"
-for device in $(lsblk -n -o NAME); do
+for device in $(lsblk -n -l -o NAME); do
 
     echo $device && mount -o ro /dev/${device} /mnt/medium 2> /dev/null && \
     if [ "$(cat /mnt/medium/boot/${ARCH}/id_label)" != "${LABEL}" ]; then
