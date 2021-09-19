@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # script to build sauzerOS chroot and live iso
 # based on https://github.com/eudaldgr/kiss-live
