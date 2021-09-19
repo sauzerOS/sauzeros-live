@@ -244,7 +244,9 @@ build_stage3()
     #build stage3 in img
     mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
     #initalize repos
-    chroot2_exec "init-repos"
+    if [ ! -d "$tmpdir/img_mount/repo/sauzeros" ] ;
+    then chroot2_exec "init-repos"
+    fi
     print "Building Xorg and dwm"
         for pkg in $base3_pkgs ; do
         chroot2_exec "KISS_PROMPT=0 kiss b $pkg" || panic "Failed to build $pkg"
