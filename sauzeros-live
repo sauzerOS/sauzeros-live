@@ -331,7 +331,7 @@ build_iso()
     #remove repos
     chroot2_exec "rm -rf /repo/*"
     #build the iso
-    mksquashfs img_mount/ root.sfs -comp xz
+    mksquashfs img_mount/ root.sfs -comp xz -p 262144
     cp img_mount/boot/vmlinuz vmlinuz-sauzeros
     umount img_mount
     tar xvf $filesdir/iso-structure.tar.xz -C .
