@@ -309,7 +309,7 @@ build_initramfs()
     cp $tmpdir/img_mount/boot/initramfs.img $tmpdir && cd $tmpdir
     mkdir initramfs && cd initramfs
     lsinitrd --unpack ../initramfs.img
-    rm init && cd lib && rm -rf firmware && cd ..
+    rm init && cd usr/lib/firmware && mv -v i915 .. && cd .. && rm -rf firmware && mkdir firmware && mv i915 firmware/ && cd ../..
     cp $tmpdir/img_mount/usr/bin/switch_root usr/bin/
     mkdir boot && echo "sauzeros-live" > boot/id_label
     cp $filesdir/init init && chmod +x init
