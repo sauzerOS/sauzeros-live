@@ -247,7 +247,7 @@ build_stage3()
     if [ ! -d "$tmpdir/img_mount/repo/sauzeros" ] ;
     then chroot2_exec "init-repos"
     fi
-    print "Building Xorg and dwm"
+    print "Building Xorg and Xfce"
         for pkg in $base3_pkgs ; do
         chroot2_exec "KISS_PROMPT=0 kiss b $pkg" || panic "Failed to build $pkg"
         done
@@ -256,16 +256,12 @@ build_stage3()
     #add live user / password live
     chroot2_exec "useradd -m -s /bin/zsh -p '\$1\$8TfZtbHa\$ywKBTqok0raEXk8cQE06F.' live"
     #install oh-my-zsh
-    chroot2_exec "su live - -c 'cd ~ && curl -LO https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh && ZSH=/home/live/.zsh sh install.sh --unattended && mkdir /home/live/.dwm && rm /home/live/install.sh'"
-    chroot2_exec "echo "TERM=st-meta-256color" >> /home/live/.zshrc"
-    #install dwm autostart script
-    cp $filesdir/autostart.sh $tmpdir/img_mount/home/live/.dwm/autostart.sh
-    #copy wallpaper
-    cp $filesdir/wallpaper.jpg $tmpdir/img_mount/home/live/.dwm/wallpaper.jpg
+    chroot2_exec "su live - -c 'cd ~ && curl -LO https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh && ZSH=/home/live/.zsh sh install.sh --unattended && rm /home/live/install.sh'"
+    chroot2_exec "echo "TERM=xterm" >> /home/live/.zshrc"
     #ensure correct ownership of live home dir
     chroot2_exec "chown -R live:live /home/live"
-    #enable autologin for user live and set default session to dwm
-    chroot2_exec "sed -i 's/# autologin=dgod/autologin=live/' /etc/lxdm/lxdm.conf && sed -i '10s/.*/session=dwm/' /etc/lxdm/lxdm.conf"
+    #enable autologin for user live
+    chroot2_exec "sed -i 's/# autologin=dgod/autologin=live/' /etc/lxdm/lxdm.conf"
     umount $tmpdir/img_mount/
 }
 
