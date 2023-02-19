@@ -171,13 +171,7 @@ build_stage1()
     }
         #only clone repos if they don't exist
         if [ ! -d "$rootfsdir/repo/sauzeros" ] ;
-        then git clone https://github.com/sauzeros/repo             "$rootfsdir/repo/sauzeros"
-        fi
-        if [ ! -d "$rootfsdir/repo/kiss" ] ;
-        then git clone https://github.com/kisslinux/repo            "$rootfsdir/repo/kiss"
-        fi
-        if [ ! -d "$rootfsdir/repo/community" ] ;
-        then git clone https://github.com/kiss-community/community  "$rootfsdir/repo/community"
+        then git clone https://github.com/sauzeros/sauzeros             "$rootfsdir/repo/sauzeros"
         fi
 
     #build stage1 packages into the chroot dir
@@ -201,10 +195,6 @@ build_stage2()
         for pkg in $base2_pkgs ; do
         chroot_exec "KISS_PROMPT=0 kiss b $pkg" || panic "Failed to build $pkg"
         done
-    #set the root password / enables boot into chroot with systemd-nspawn
-    #use openssl to generate the shadow password string: echo PASSWORD | openssl passwd -1 -stdin
-    #escape  $ chars in the password string with \
-    chroot_exec "usermod --password '\$1\$SJR.yI7K\$Xec.tJUVou9ArNUsQ8Pji1' root"
 }
 
 build_archive()
@@ -224,6 +214,10 @@ build_img()
     mkdir -pv $tmpdir/img_mount
     mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
     tar xvf /$tmpdir/${archivelabel}.tar.xz -C $tmpdir/img_mount/
+    #set the root password / enables boot into chroot with systemd-nspawn
+    #use openssl to generate the shadow password string: echo PASSWORD | openssl passwd -1 -stdin
+    #escape  $ chars in the password string with \
+    chroot2_exec "usermod --password '\$1\$SJR.yI7K\$Xec.tJUVou9ArNUsQ8Pji1' root"
     umount $tmpdir/img_mount/
 }
 
@@ -247,7 +241,7 @@ build_stage3()
     if [ ! -d "$tmpdir/img_mount/repo/sauzeros" ] ;
     then chroot2_exec "init-repos"
     fi
-    print "Building Xorg and Xfce"
+    print "Building Xorg"
         for pkg in $base3_pkgs ; do
         chroot2_exec "KISS_PROMPT=0 kiss b $pkg" || panic "Failed to build $pkg"
         done
