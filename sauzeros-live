@@ -180,8 +180,8 @@ build_stage1()
         . $filesdir/flags.sh
         kiss b $pkg || panic "Failed to build $pkg"
         done
-    #fix missing ssl cert
-    cp /etc/ssl/cert.pem $rootfsdir/etc/ssl/
+    #fix missing ssl certs
+    cp -a /etc/ssl/certs $rootfsdir/etc/ssl/
     #fix locale
     chroot_exec /var/db/kiss/installed/glibc/post-install
 }
@@ -245,8 +245,8 @@ build_stage3()
         for pkg in $base3_pkgs ; do
         chroot2_exec "KISS_PROMPT=0 kiss b $pkg" || panic "Failed to build $pkg"
         done
-    #enable lxdm
-    chroot2_exec "systemctl enable lxdm"
+    #enable lightdm
+    chroot2_exec "systemctl enable lightdm"
     #add live user / password live
     chroot2_exec "useradd -m -s /bin/zsh -p '\$1\$8TfZtbHa\$ywKBTqok0raEXk8cQE06F.' live"
     #install oh-my-zsh
@@ -254,8 +254,8 @@ build_stage3()
     chroot2_exec "echo "TERM=xterm" >> /home/live/.zshrc"
     #ensure correct ownership of live home dir
     chroot2_exec "chown -R live:live /home/live"
-    #enable autologin for user live
-    chroot2_exec "sed -i 's/# autologin=dgod/autologin=live/' /etc/lxdm/lxdm.conf"
+    #switch sh to bash
+    chroot2_exec "kiss a bash /usr/bin/sh"
     umount $tmpdir/img_mount/
 }
 
