@@ -295,7 +295,7 @@ build_initramfs()
     #enable iwd service for wireless
     chroot2_exec "systemctl enable iwd"
     #build the initrmafs for live iso
-    chroot2_exec "dracut -f -I /usr/bin/lsblk -m 'base drm dash' /boot/initramfs.img $kernel_name"
+    chroot2_exec "dracut -f -I /usr/bin/lsblk -m 'base drm bash' /boot/initramfs.img $kernel_name"
     cp $tmpdir/img_mount/boot/initramfs.img $tmpdir && cd $tmpdir
     mkdir initramfs && cd initramfs
     lsinitrd --unpack ../initramfs.img
