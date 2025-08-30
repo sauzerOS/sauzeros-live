@@ -9,10 +9,10 @@ LABEL="$(cat /boot/id_label)"
 
 
 #load driver early for miix-sg80
-modprobe pwm-lpss
-modprobe pwm-lpss-platform
-modprobe drm
-modprobe i915
+#modprobe pwm-lpss
+#modprobe pwm-lpss-platform
+#modprobe drm
+#modprobe i915
 
 ###########################
 rescue_shell() {

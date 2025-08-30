@@ -171,7 +171,7 @@ build_stage1()
     }
         #only clone repos if they don't exist
         if [ ! -d "$rootfsdir/repo/sauzeros" ] ;
-        then git clone https://github.com/sauzeros/sauzeros             "$rootfsdir/repo/sauzeros"
+        then git clone https://github.com/sauzeros/sauzeros "$rootfsdir/repo/sauzeros"
         fi
 
     #build stage1 packages into the chroot dir
@@ -181,9 +181,11 @@ build_stage1()
         kiss b $pkg || panic "Failed to build $pkg"
         done
     #fix missing ssl certs
-    cp -a /etc/ssl/certs $rootfsdir/etc/ssl/
+    cp -a /etc/ssl/cert.pem $rootfsdir/etc/ssl/
+    mkdir $rootfsdir/etc/pki
+    cp -a /etc/ssl/pki/tls $rootfsdir/etc/pki/
     #fix locale
-    chroot_exec /var/db/kiss/installed/glibc/post-install
+    #chroot_exec /var/db/kiss/installed/glibc/post-install
 }
 
 build_stage2()
@@ -193,7 +195,7 @@ build_stage2()
     #build stage2 in chroot
     print "Building stage2"
         for pkg in $base2_pkgs ; do
-        chroot_exec "KISS_PROMPT=0 kiss b $pkg" || panic "Failed to build $pkg"
+        chroot_exec "kiss b $pkg" || panic "Failed to build $pkg"
         done
 }
 
@@ -209,10 +211,10 @@ build_archive()
 build_img()
 {
     #prepare img for iso
-    dd if=/dev/zero of=$tmpdir/sauzeros-live-$ver.img bs=1G seek=5 count=0
-    mkfs.f2fs -f $tmpdir/sauzeros-live-$ver.img
+    dd if=/dev/zero of=$tmpdir/sauzeros-live-$ver.img bs=1G seek=5 count=5
+    mkfs.btrfs -f $tmpdir/sauzeros-live-$ver.img
     mkdir -pv $tmpdir/img_mount
-    mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
+    mount -o compress=zstd "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
     tar xvf /$tmpdir/${archivelabel}.tar.xz -C $tmpdir/img_mount/
     #set the root password / enables boot into chroot with systemd-nspawn
     #use openssl to generate the shadow password string: echo PASSWORD | openssl passwd -1 -stdin
@@ -224,10 +226,12 @@ build_img()
 build_kernel()
 {
     #build kernel in img
-    mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
+    mount -o compress=zstd "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
     #copy default config
     cp $filesdir/$kernel_conf $tmpdir/img_mount/root
-    chroot2_exec "cd /tmp && curl -LO $kernel_url && tar xvf linux-$kernel_ver.tar.xz && cd linux-$kernel_ver && zcat /root/$kernel_conf > .config && make olddefconfig && make && make install && make modules_install"
+    chroot2_exec "cd /usr/src && curl -LO $kernel_url && tar xvf linux-$kernel_ver.tar.xz && cd linux-$kernel_ver && zcat /root/$kernel_conf > .config && make olddefconfig && make && make install && make modules_install"
+    #build nvidia drivers
+    chroot2_exec "kiss b nvidia"
     umount $tmpdir/img_mount/
 }
 
@@ -236,22 +240,22 @@ build_stage3()
     [ "$packages" ] && base3_pkgs="$base3_pkgs ${packages//,/ }"
 
     #build stage3 in img
-    mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
+    mount -o compress=zstd "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
     #initalize repos
     if [ ! -d "$tmpdir/img_mount/repo/sauzeros" ] ;
     then chroot2_exec "init-repos"
     fi
     print "Building Xorg"
         for pkg in $base3_pkgs ; do
-        chroot2_exec "KISS_PROMPT=0 kiss b $pkg" || panic "Failed to build $pkg"
+        chroot2_exec "kiss b $pkg" || panic "Failed to build $pkg"
         done
     #enable lightdm
-    chroot2_exec "systemctl enable lightdm"
+    #chroot2_exec "systemctl enable lightdm"
     #add live user / password live
-    chroot2_exec "useradd -m -s /bin/zsh -p '\$1\$8TfZtbHa\$ywKBTqok0raEXk8cQE06F.' live"
+    chroot2_exec "useradd -m -s /bin/fish -p '\$1\$8TfZtbHa\$ywKBTqok0raEXk8cQE06F.' live"
     #install oh-my-zsh
-    chroot2_exec "su live - -c 'cd ~ && curl -LO https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh && ZSH=/home/live/.zsh sh install.sh --unattended && rm /home/live/install.sh'"
-    chroot2_exec "echo "TERM=xterm" >> /home/live/.zshrc"
+    #chroot2_exec "su live - -c 'cd ~ && curl -LO https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh && ZSH=/home/live/.zsh sh install.sh --unattended && rm /home/live/install.sh'"
+    #chroot2_exec "echo "TERM=xterm" >> /home/live/.zshrc"
     #ensure correct ownership of live home dir
     chroot2_exec "chown -R live:live /home/live"
     #switch sh to bash
@@ -262,10 +266,10 @@ build_stage3()
 build_vmware()
 {
    #build vmware-tools in img
-    mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
+    mount -o compress=zstd "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
     print "Building vmware-tools"
         for pkg in $vmware_pkgs ; do
-        chroot2_exec "KISS_PROMPT=0 kiss b $pkg" || panic "Failed to build $pkg"
+        chroot2_exec "kiss b $pkg" || panic "Failed to build $pkg"
         done
     #enable open-vm-tools
     chroot2_exec "systemctl enable vmtoolsd"
@@ -277,36 +281,33 @@ build_applications()
     [ "$packages" ] && applications_pkgs="$applications_pkgs ${packages//,/ }"
 
     #build applications in img
-    mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
+    mount -o compress=zstd "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
     print "Building applications"
         for pkg in $applications_pkgs ; do
-        chroot2_exec "KISS_PROMPT=0 kiss b $pkg" || panic "Failed to build $pkg"
+        chroot2_exec "kiss b $pkg" || panic "Failed to build $pkg"
         done
-    #install librsvg and adwaita-icons bin to avoid building rust
-    find $filesdir -name "adwaita*" -exec cp '{}'  "$tmpdir/img_mount/root/.cache/kiss/bin" \;
-    find $filesdir -name "librsvg*" -exec cp '{}'  "$tmpdir/img_mount/root/.cache/kiss/bin" \;
-    chroot2_exec "KISS_PROMPT=0 kiss i /root/.cache/kiss/bin/librsvg* && KISS_PROMPT=0 kiss i /root/.cache/kiss/bin/adwaita-icon-theme*"
     umount $tmpdir/img_mount/
 }
 
 build_initramfs()
 {
-    mount "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
+    mount -o compress=zstd "$tmpdir/sauzeros-live-$ver.img" $tmpdir/img_mount
     #enable iwd service for wireless
-    chroot2_exec "systemctl enable iwd"
+    #chroot2_exec "systemctl enable iwd"
     #build the initrmafs for live iso
     chroot2_exec "dracut -f -I /usr/bin/lsblk -m 'base drm bash' /boot/initramfs.img $kernel_name"
     cp $tmpdir/img_mount/boot/initramfs.img $tmpdir && cd $tmpdir
     mkdir initramfs && cd initramfs
     lsinitrd --unpack ../initramfs.img
-    rm init && cd usr/lib/firmware && mv -v i915 .. && cd .. && rm -rf firmware && mkdir firmware && mv i915 firmware/ && cd ../..
+    rm init && rm -rf usr/lib/firmware/
+    #&& cd usr/lib/firmware && mv -v i915 .. && cd .. && rm -rf firmware && mkdir firmware && mv i915 firmware/ && cd ../..
     cp $tmpdir/img_mount/usr/bin/switch_root usr/bin/
     mkdir boot && echo "sauzeros-live" > boot/id_label
     cp $filesdir/init init && chmod +x init
     find . -print0 | cpio --null -ov --format=newc > ../initramfs-live
     cd ..
     rm -rf initramfs
-    lz4 -flv initramfs-live
+    zstd initramfs-live
     umount $tmpdir/img_mount/
 }
 
@@ -315,11 +316,13 @@ build_iso()
     cd $tmpdir
     mount sauzeros-live-$ver.img img_mount
     #add live user to sudoers
-    chroot2_exec "sed -i '85s/.*/live ALL=(ALL) NOPASSWD: ALL/' /etc/sudoers"
+    #chroot2_exec "sed -i '85s/.*/live ALL=(ALL) NOPASSWD: ALL/' /etc/sudoers"
     #cleanup kiss cache files
     chroot2_exec "rm -rf /root/.cache"
     #remove repos
     chroot2_exec "rm -rf /repo/*"
+    #remove kernel source
+    chroot2_exec "rm -rf /usr/src/*"
     #build the iso
     mksquashfs img_mount/ root.sfs -comp xz -b 262144
     cp img_mount/boot/vmlinuz vmlinuz-sauzeros
@@ -327,10 +330,10 @@ build_iso()
     tar xvf $filesdir/iso-structure.tar.xz -C .
     echo "sauzeros-live" > live/boot/x86_64/id_label
     mv -f root.sfs live/boot/x86_64
-    cp -f initramfs-live.lz4 live/boot/x86_64/initram.fs
+    cp -f initramfs-live.zst live/boot/x86_64/initram.fs
     cp -f vmlinuz-sauzeros live/boot/x86_64/vmlinuz-sauzeros
     mount live/EFI/sauzeros/efiboot.img img_mount
-    cp -f initramfs-live.lz4 img_mount/initram.fs
+    cp -f initramfs-live.zst img_mount/initram.fs
     cp -f vmlinuz-sauzeros img_mount/vmlinuz-sauzeros
     umount img_mount
 
